@@ -26,9 +26,16 @@ Lightweight status monitoring dashboard for Windows Server.
    * https://www.python.org/downloads/windows/
    * globale Installation
 
-### 2. Clone repository
+2. Clone repository
+   * einfach downloaden und
+   * in ein Verzeichnis der Wahl (bsp.: c:\vw-statusmonitor) entpacken
 
-### 3. Create virtual environment
+3. Create virtual environment
+   * Kommandozeile im Repository-Verzeichnis öffnen
+   * Befehl eingeben
+     ```
+     python -m venv .venv
+     ```
 
 ### 4. Install dependencies
 
