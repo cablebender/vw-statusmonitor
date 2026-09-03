@@ -2,11 +2,10 @@ import json
 import logging
 import os
 import threading
-import time
 from datetime import datetime, timezone
 
 from flask import Flask, jsonify
-from waitress import serve
+from waitress import create_server
 
 from checker import run_check
 
@@ -101,21 +100,27 @@ def perform_checks(config):
         current_status = new_status
 
 
-def check_loop(config):
+def check_loop(config, stop_event):
     interval = config["settings"].get(
         "check_interval",
         30
     )
 
-    while True:
+    while not stop_event.is_set():
         try:
             perform_checks(config)
+
         except Exception:
             logging.exception(
                 "Error during check cycle"
             )
 
-        time.sleep(interval)
+        # Statt time.sleep(interval):
+        # dadurch kann der Dienst sofort beendet werden.
+        if stop_event.wait(interval):
+            break
+
+    logging.info("Checker thread stopped")
 
 
 @app.route("/")
@@ -138,7 +143,15 @@ def health():
     })
 
 
-def main():
+def run(stop_event=None):
+    """
+    Startet VW-Statusmonitor.
+
+    stop_event:
+        threading.Event(), das vom Windows-Service
+        beim Beenden gesetzt wird.
+    """
+
     configure_logging()
 
     logging.info(
@@ -147,15 +160,20 @@ def main():
 
     if not os.path.exists(CONFIG_FILE):
         logging.error(
-            "config.json not found"
+            "config.json not found: %s",
+            CONFIG_FILE
         )
         raise SystemExit(1)
 
     config = load_config()
 
+    if stop_event is None:
+        stop_event = threading.Event()
+
     worker = threading.Thread(
         target=check_loop,
-        args=(config,),
+        args=(config, stop_event),
+        name="status-checker",
         daemon=True
     )
 
@@ -177,12 +195,83 @@ def main():
         listen_port
     )
 
-    serve(
+    server = create_server(
         app,
         host=listen_address,
         port=listen_port,
         threads=4
     )
+
+    server_thread = threading.Thread(
+        target=server.run,
+        name="waitress",
+        daemon=True
+    )
+
+    server_thread.start()
+
+    try:
+        # Warten, bis der Windows-Dienst oder Ctrl+C
+        # das Stop-Event setzt.
+        while not stop_event.wait(1):
+            if not server_thread.is_alive():
+                logging.error(
+                    "Waitress server stopped unexpectedly"
+                )
+                break
+
+    except KeyboardInterrupt:
+        logging.info(
+            "Keyboard interrupt received"
+        )
+        stop_event.set()
+
+    finally:
+        logging.info(
+            "Stopping VW-Statusmonitor"
+        )
+
+        stop_event.set()
+
+        try:
+            server.close()
+        except Exception:
+            logging.exception(
+                "Error while closing Waitress server"
+            )
+
+        # Bei einem Single-Socket-Waitress-Server wird der
+        # Task-Dispatcher nicht in jeder Version automatisch
+        # heruntergefahren.
+        try:
+            task_dispatcher = getattr(
+                server,
+                "task_dispatcher",
+                None
+            )
+
+            if task_dispatcher is not None:
+                task_dispatcher.shutdown()
+        except Exception:
+            logging.exception(
+                "Error while stopping Waitress task dispatcher"
+            )
+
+        server_thread.join(
+            timeout=10
+        )
+
+        worker.join(
+            timeout=10
+        )
+
+        logging.info(
+            "VW-Statusmonitor stopped"
+        )
+
+
+def main():
+    run()
 
 
 if __name__ == "__main__":
