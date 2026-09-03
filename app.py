@@ -62,6 +62,44 @@ def configure_logging():
     )
 
 
+def initialize_status(config):
+    global current_status
+
+    checks = []
+
+    for check in config.get("checks", []):
+        item = {
+            "name": check.get(
+                "name",
+                check.get("target", "Unknown")
+            ),
+            "description": check.get(
+                "description",
+                ""
+            ),
+            "type": check.get(
+                "type",
+                "unknown"
+            ),
+            "target": check.get(
+                "target",
+                ""
+            ),
+            "status": "unknown"
+        }
+
+        if "port" in check:
+            item["port"] = check["port"]
+
+        checks.append(item)
+
+    with status_lock:
+        current_status = {
+            "generated": None,
+            "checks": checks
+        }
+
+
 def perform_checks(config):
     global current_status
 
@@ -75,18 +113,55 @@ def perform_checks(config):
     logging.info("Starting check cycle")
 
     for check in config.get("checks", []):
-        result = run_check(
-            check,
-            default_timeout
-        )
+        try:
+            result = run_check(
+                check,
+                default_timeout
+            )
+
+        except Exception as exc:
+            logging.exception(
+                "Internal error while checking %s",
+                check.get(
+                    "name",
+                    check.get("target", "Unknown")
+                )
+            )
+
+            result = {
+                "name": check.get(
+                    "name",
+                    check.get("target", "Unknown")
+                ),
+                "description": check.get(
+                    "description",
+                    ""
+                ),
+                "type": check.get(
+                    "type",
+                    "unknown"
+                ),
+                "target": check.get(
+                    "target",
+                    ""
+                ),
+                "status": "unknown",
+                "error": f"Internal checker error: {exc}"
+            }
+
+            if "port" in check:
+                result["port"] = check["port"]
 
         results.append(result)
 
         logging.info(
             "%s [%s] %s",
-            result["name"],
-            result["type"],
-            result["status"].upper()
+            result.get("name", "Unknown"),
+            result.get("type", "unknown"),
+            result.get(
+                "status",
+                "unknown"
+            ).upper()
         )
 
     new_status = {
@@ -115,8 +190,6 @@ def check_loop(config, stop_event):
                 "Error during check cycle"
             )
 
-        # Statt time.sleep(interval):
-        # dadurch kann der Dienst sofort beendet werden.
         if stop_event.wait(interval):
             break
 
@@ -144,14 +217,6 @@ def health():
 
 
 def run(stop_event=None):
-    """
-    Startet VW-Statusmonitor.
-
-    stop_event:
-        threading.Event(), das vom Windows-Service
-        beim Beenden gesetzt wird.
-    """
-
     configure_logging()
 
     logging.info(
@@ -166,6 +231,8 @@ def run(stop_event=None):
         raise SystemExit(1)
 
     config = load_config()
+
+    initialize_status(config)
 
     if stop_event is None:
         stop_event = threading.Event()
@@ -211,8 +278,6 @@ def run(stop_event=None):
     server_thread.start()
 
     try:
-        # Warten, bis der Windows-Dienst oder Ctrl+C
-        # das Stop-Event setzt.
         while not stop_event.wait(1):
             if not server_thread.is_alive():
                 logging.error(
@@ -224,6 +289,7 @@ def run(stop_event=None):
         logging.info(
             "Keyboard interrupt received"
         )
+
         stop_event.set()
 
     finally:
@@ -235,14 +301,12 @@ def run(stop_event=None):
 
         try:
             server.close()
+
         except Exception:
             logging.exception(
                 "Error while closing Waitress server"
             )
 
-        # Bei einem Single-Socket-Waitress-Server wird der
-        # Task-Dispatcher nicht in jeder Version automatisch
-        # heruntergefahren.
         try:
             task_dispatcher = getattr(
                 server,
@@ -252,6 +316,7 @@ def run(stop_event=None):
 
             if task_dispatcher is not None:
                 task_dispatcher.shutdown()
+
         except Exception:
             logging.exception(
                 "Error while stopping Waitress task dispatcher"
