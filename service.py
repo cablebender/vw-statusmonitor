@@ -63,10 +63,8 @@ class VWStatusMonitorService(
             "VW-Statusmonitor stop requested"
         )
 
-        # Python-Anwendung informieren
         self.stop_event.set()
 
-        # Windows-Event ebenfalls setzen
         win32event.SetEvent(
             self.win32_stop_event
         )
