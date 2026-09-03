@@ -1,4 +1,14 @@
 async function loadStatus() {
+    const lastUpdate =
+        document.getElementById(
+            'last-update'
+        );
+
+    const container =
+        document.getElementById(
+            'systems'
+        );
+
     try {
         const response = await fetch(
             '/api/status',
@@ -7,41 +17,72 @@ async function loadStatus() {
             }
         );
 
-        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(
+                `HTTP ${response.status}`
+            );
+        }
 
-        const container =
-            document.getElementById('systems');
+        const data =
+            await response.json();
 
         container.innerHTML = '';
 
         for (const check of data.checks) {
             const element =
-                document.createElement('div');
+                document.createElement(
+                    'div'
+                );
+
+            const status =
+                [
+                    'up',
+                    'down',
+                    'unknown'
+                ].includes(check.status)
+                    ? check.status
+                    : 'unknown';
 
             element.className =
-                `system ${check.status}`;
+                `system ${status}`;
 
-            let details = [];
+            const details = [];
 
-            if (check.http_status !== undefined) {
+            if (
+                check.http_status
+                !== undefined
+            ) {
                 details.push(
                     `HTTP ${check.http_status}`
                 );
             }
 
-            if (check.response_ms !== undefined) {
+            if (
+                check.response_ms
+                !== undefined
+            ) {
                 details.push(
                     `${check.response_ms} ms`
                 );
             }
 
+            if (check.port !== undefined) {
+                details.push(
+                    `Port ${check.port}`
+                );
+            }
+
             if (check.error) {
-                details.push(check.error);
+                details.push(
+                    check.error
+                );
             }
 
             element.innerHTML = `
                 <div class="name">
-                    ${escapeHtml(check.name)}
+                    ${escapeHtml(
+                        check.name
+                    )}
                 </div>
 
                 <div class="description">
@@ -57,38 +98,50 @@ async function loadStatus() {
                 </div>
 
                 <div class="state">
-                    ${check.status.toUpperCase()}
+                    ${status.toUpperCase()}
                 </div>
             `;
 
-            container.appendChild(element);
+            container.appendChild(
+                element
+            );
         }
 
         if (data.generated) {
             const date =
-                new Date(data.generated);
+                new Date(
+                    data.generated
+                );
 
-            document.getElementById(
-                'last-update'
-            ).textContent =
-                'Letzte Prüfung: ' +
-                date.toLocaleString();
+            lastUpdate.textContent =
+                'Letzte Prüfung: '
+                + date.toLocaleString();
+
+        } else {
+            lastUpdate.textContent =
+                'Noch keine Prüfung durchgeführt';
         }
 
     } catch (error) {
-        document.getElementById(
-            'last-update'
-        ).textContent =
+        lastUpdate.textContent =
             'Status konnte nicht geladen werden';
+
+        console.error(
+            'Status request failed:',
+            error
+        );
     }
 }
 
 
 function escapeHtml(value) {
     const div =
-        document.createElement('div');
+        document.createElement(
+            'div'
+        );
 
-    div.textContent = value;
+    div.textContent =
+        String(value ?? '');
 
     return div.innerHTML;
 }
