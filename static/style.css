@@ -37,7 +37,7 @@ main {
     grid-template-columns:
         220px
         1fr
-        250px
+        300px
         100px;
 
     align-items: center;
@@ -58,6 +58,10 @@ main {
     background: #b82d2d;
 }
 
+.system.unknown {
+    background: #6b7280;
+}
+
 .name {
     font-weight: bold;
     font-size: 17px;
@@ -69,6 +73,7 @@ main {
 
 .details {
     font-family: monospace;
+    font-size: 13px;
 }
 
 .state {
