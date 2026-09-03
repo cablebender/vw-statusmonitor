@@ -1,10 +1,10 @@
 import platform
 import socket
+import ssl
 import subprocess
 import time
 import urllib.error
 import urllib.request
-import ssl
 
 
 def check_ping(target, timeout=3):
@@ -17,6 +17,7 @@ def check_ping(target, timeout=3):
             "-w", str(timeout * 1000),
             target
         ]
+
     else:
         command = [
             "ping",
@@ -33,17 +34,45 @@ def check_ping(target, timeout=3):
             timeout=timeout + 1
         )
 
-        elapsed = round((time.perf_counter() - start) * 1000, 1)
+        elapsed = round(
+            (
+                time.perf_counter()
+                - start
+            ) * 1000,
+            1
+        )
+
+        if result.returncode == 0:
+            return {
+                "status": "up",
+                "response_ms": elapsed
+            }
 
         return {
-            "status": "up" if result.returncode == 0 else "down",
-            "response_ms": elapsed
+            "status": "down",
+            "response_ms": elapsed,
+            "error": (
+                "Ping returned exit code "
+                f"{result.returncode}"
+            )
         }
 
     except subprocess.TimeoutExpired:
         return {
             "status": "down",
-            "error": "timeout"
+            "error": "Ping timeout"
+        }
+
+    except FileNotFoundError:
+        return {
+            "status": "unknown",
+            "error": "ping executable not found"
+        }
+
+    except Exception as exc:
+        return {
+            "status": "unknown",
+            "error": str(exc)
         }
 
 
@@ -56,7 +85,10 @@ def check_tcp(target, port, timeout=3):
             timeout=timeout
         ):
             elapsed = round(
-                (time.perf_counter() - start) * 1000,
+                (
+                    time.perf_counter()
+                    - start
+                ) * 1000,
                 1
             )
 
@@ -65,9 +97,20 @@ def check_tcp(target, port, timeout=3):
                 "response_ms": elapsed
             }
 
-    except Exception as exc:
+    except (
+        socket.timeout,
+        ConnectionRefusedError,
+        ConnectionResetError,
+        OSError
+    ) as exc:
         return {
             "status": "down",
+            "error": str(exc)
+        }
+
+    except Exception as exc:
+        return {
+            "status": "unknown",
             "error": str(exc)
         }
 
@@ -82,7 +125,10 @@ def check_http(
 
     context = None
 
-    if target.lower().startswith("https://") and not verify_tls:
+    if (
+        target.lower().startswith("https://")
+        and not verify_tls
+    ):
         context = ssl._create_unverified_context()
 
     try:
@@ -100,7 +146,10 @@ def check_http(
         ) as response:
 
             elapsed = round(
-                (time.perf_counter() - start) * 1000,
+                (
+                    time.perf_counter()
+                    - start
+                ) * 1000,
                 1
             )
 
@@ -123,48 +172,118 @@ def check_http(
             "error": str(exc)
         }
 
-    except Exception as exc:
+    except (
+        urllib.error.URLError,
+        TimeoutError,
+        socket.timeout
+    ) as exc:
         return {
             "status": "down",
+            "error": str(exc)
+        }
+
+    except ValueError as exc:
+        return {
+            "status": "unknown",
+            "error": (
+                "Invalid URL: "
+                + str(exc)
+            )
+        }
+
+    except Exception as exc:
+        return {
+            "status": "unknown",
             "error": str(exc)
         }
 
 
 def run_check(check, default_timeout=3):
     check_type = check.get("type")
-    timeout = check.get("timeout", default_timeout)
+    target = check.get("target")
 
-    if check_type == "ping":
+    timeout = check.get(
+        "timeout",
+        default_timeout
+    )
+
+    if not check_type:
+        result = {
+            "status": "unknown",
+            "error": "Check type missing"
+        }
+
+    elif not target:
+        result = {
+            "status": "unknown",
+            "error": "Check target missing"
+        }
+
+    elif check_type == "ping":
         result = check_ping(
-            check["target"],
+            target,
             timeout
         )
 
     elif check_type == "tcp":
-        result = check_tcp(
-            check["target"],
-            check["port"],
-            timeout
-        )
+        if "port" not in check:
+            result = {
+                "status": "unknown",
+                "error": "TCP port missing"
+            }
 
-    elif check_type in ("http", "https"):
+        else:
+            result = check_tcp(
+                target,
+                check["port"],
+                timeout
+            )
+
+    elif check_type in (
+        "http",
+        "https"
+    ):
         result = check_http(
-            check["target"],
+            target,
             timeout,
-            check.get("expected_status", 200),
-            check.get("verify_tls", True)
+            check.get(
+                "expected_status",
+                200
+            ),
+            check.get(
+                "verify_tls",
+                True
+            )
         )
 
     else:
         result = {
-            "status": "down",
-            "error": f"Unknown check type: {check_type}"
+            "status": "unknown",
+            "error": (
+                "Unknown check type: "
+                f"{check_type}"
+            )
         }
 
-    result["name"] = check.get("name", check["target"])
-    result["description"] = check.get("description", "")
-    result["type"] = check_type
-    result["target"] = check["target"]
+    result["name"] = check.get(
+        "name",
+        target or "Unknown"
+    )
+
+    result["description"] = check.get(
+        "description",
+        ""
+    )
+
+    result["type"] = (
+        check_type
+        or "unknown"
+    )
+
+    result["target"] = (
+        target
+        or ""
+    )
 
     if "port" in check:
         result["port"] = check["port"]
