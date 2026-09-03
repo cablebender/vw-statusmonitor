@@ -166,10 +166,29 @@ def check_http(
             }
 
     except urllib.error.HTTPError as exc:
+        elapsed = round(
+            (
+                time.perf_counter()
+                - start
+            ) * 1000,
+            1
+        )
+
+        http_status = exc.code
+
         return {
-            "status": "down",
-            "http_status": exc.code,
-            "error": str(exc)
+            "status": (
+                "up"
+                if http_status == expected_status
+                else "down"
+            ),
+            "http_status": http_status,
+            "response_ms": elapsed,
+            "error": (
+                None
+                if http_status == expected_status
+                else str(exc)
+            )
         }
 
     except (
@@ -196,8 +215,7 @@ def check_http(
             "status": "unknown",
             "error": str(exc)
         }
-
-
+        
 def run_check(check, default_timeout=3):
     check_type = check.get("type")
     target = check.get("target")
