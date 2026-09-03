@@ -22,7 +22,9 @@ Lightweight status monitoring dashboard for Windows Server.
 
 ## Installation
 
-### 1. Install Python
+1. Install Python
+   * https://www.python.org/downloads/windows/
+   * globale Installation
 
 ### 2. Clone repository
 
