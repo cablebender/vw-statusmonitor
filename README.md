@@ -16,11 +16,11 @@ Lightweight status monitoring dashboard for Windows Server.
 - Runs as a Windows service
 - No database required
 
-## Architecture
-
-## Screenshot
-
 ## Requirements
+* Windows
+* Powershell
+* Admin-Rechte
+* Python
 
 ## Installation
 
