@@ -12,6 +12,7 @@ Lightweight status monitoring dashboard for Windows Server.
 - TCP port checks
 - JSON API
 - Web dashboard
+- Logs
 - Configurable check interval
 - Runs as a Windows service
 - No database required
@@ -19,7 +20,7 @@ Lightweight status monitoring dashboard for Windows Server.
 ## Requirements
 * Windows
 * Powershell
-* Admin-Rechte
+* Admin-Rechte (zur Installation)
 * Python
 
 ## Installation
