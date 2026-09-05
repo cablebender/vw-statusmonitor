@@ -5,10 +5,11 @@ import threading
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from waitress import create_server
 
 from checker import run_check
+from history import HistoryStore
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -16,6 +17,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 LOG_DIR = os.path.join(BASE_DIR, "logs")
+DATA_DIR = os.path.join(BASE_DIR, "data")
 
 
 app = Flask(
@@ -33,9 +35,17 @@ current_status = {
 }
 
 
-# Letzter tatsächlich gemessener Status.
-# Wird für die zustandsbasierte Protokollierung verwendet.
+# Der Check-Name ist gleichzeitig die eindeutige ID.
+configured_check_names = []
+
+# Letzter bekannter Zustand je Check.
 previous_check_states = {}
+
+# Wird nur gesetzt, wenn History aktiviert ist.
+history_store = None
+
+history_default_hours = 24
+history_retention_days = 30
 
 
 def load_config():
@@ -45,6 +55,43 @@ def load_config():
         encoding="utf-8"
     ) as file:
         return json.load(file)
+
+
+def validate_config(config):
+    """
+    Prüft grundlegende Konfigurationsfehler.
+
+    Da der Check-Name gleichzeitig die ID ist,
+    müssen alle Namen eindeutig sein.
+    """
+
+    checks = config.get("checks", [])
+
+    seen_names = {}
+
+    for index, check in enumerate(
+        checks,
+        start=1
+    ):
+        name = str(
+            check.get("name", "")
+        ).strip()
+
+        if not name:
+            raise ValueError(
+                f"Check #{index} has no name"
+            )
+
+        normalized_name = name.casefold()
+
+        if normalized_name in seen_names:
+            raise ValueError(
+                "Duplicate check name: "
+                f"'{name}' conflicts with "
+                f"'{seen_names[normalized_name]}'"
+            )
+
+        seen_names[normalized_name] = name
 
 
 def configure_logging(config):
@@ -72,23 +119,23 @@ def configure_logging(config):
         logging.INFO
     )
 
-    max_size_mb = logging_config.get(
-        "max_size_mb",
-        5
-    )
-
-    backup_count = logging_config.get(
-        "backup_count",
-        5
-    )
-
     try:
-        max_size_mb = int(max_size_mb)
+        max_size_mb = int(
+            logging_config.get(
+                "max_size_mb",
+                5
+            )
+        )
     except (TypeError, ValueError):
         max_size_mb = 5
 
     try:
-        backup_count = int(backup_count)
+        backup_count = int(
+            logging_config.get(
+                "backup_count",
+                5
+            )
+        )
     except (TypeError, ValueError):
         backup_count = 5
 
@@ -109,11 +156,7 @@ def configure_logging(config):
 
     file_handler = RotatingFileHandler(
         logfile,
-        maxBytes=(
-            max_size_mb
-            * 1024
-            * 1024
-        ),
+        maxBytes=max_size_mb * 1024 * 1024,
         backupCount=backup_count,
         encoding="utf-8"
     )
@@ -136,8 +179,6 @@ def configure_logging(config):
         log_level
     )
 
-    # Verhindert doppelte Handler, falls die
-    # Logging-Konfiguration erneut geladen wird.
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(
             handler
@@ -165,6 +206,75 @@ def configure_logging(config):
     )
 
 
+def initialize_history(config):
+    global history_store
+    global history_default_hours
+    global history_retention_days
+
+    history_config = (
+        config
+        .get("settings", {})
+        .get("history", {})
+    )
+
+    enabled = history_config.get(
+        "enabled",
+        True
+    )
+
+    try:
+        history_retention_days = int(
+            history_config.get(
+                "retention_days",
+                30
+            )
+        )
+    except (TypeError, ValueError):
+        history_retention_days = 30
+
+    try:
+        history_default_hours = int(
+            history_config.get(
+                "default_display_hours",
+                24
+            )
+        )
+    except (TypeError, ValueError):
+        history_default_hours = 24
+
+    if history_retention_days < 1:
+        history_retention_days = 1
+
+    if history_default_hours < 1:
+        history_default_hours = 24
+
+    if not enabled:
+        history_store = None
+
+        logging.info(
+            "History disabled"
+        )
+
+        return
+
+    history_store = HistoryStore(
+        data_dir=DATA_DIR,
+        filename="history.jsonl",
+        retention_days=history_retention_days
+    )
+
+    history_store.cleanup(
+        force=True
+    )
+
+    logging.info(
+        "History initialized: "
+        "retention=%s days default_display=%s hours",
+        history_retention_days,
+        history_default_hours
+    )
+
+
 def initialize_status(config):
     global current_status
 
@@ -175,13 +285,7 @@ def initialize_status(config):
         []
     ):
         item = {
-            "name": check.get(
-                "name",
-                check.get(
-                    "target",
-                    "Unknown"
-                )
-            ),
+            "name": check["name"],
             "description": check.get(
                 "description",
                 ""
@@ -200,7 +304,9 @@ def initialize_status(config):
         if "port" in check:
             item["port"] = check["port"]
 
-        checks.append(item)
+        checks.append(
+            item
+        )
 
     with status_lock:
         current_status = {
@@ -209,47 +315,7 @@ def initialize_status(config):
         }
 
 
-def get_check_key(check):
-    """
-    Erzeugt eine eindeutige interne ID für einen Check.
-
-    Name alleine reicht nicht unbedingt aus,
-    weil mehrere Checks denselben Namen besitzen könnten.
-    """
-
-    return (
-        str(
-            check.get(
-                "name",
-                ""
-            )
-        ),
-        str(
-            check.get(
-                "type",
-                ""
-            )
-        ),
-        str(
-            check.get(
-                "target",
-                ""
-            )
-        ),
-        str(
-            check.get(
-                "port",
-                ""
-            )
-        )
-    )
-
-
 def get_result_details(result):
-    """
-    Erzeugt eine kurze Beschreibung für das Log.
-    """
-
     details = []
 
     if result.get(
@@ -288,31 +354,26 @@ def get_result_details(result):
     )
 
 
-def log_status_change(
+def process_status_change(
     check,
     result
 ):
     """
-    Protokolliert nur relevante Ereignisse:
+    Behandelt Logging und History.
 
-    - erster erfolgreicher UP-Check:
-      kein Logeintrag
+    History:
+    - erster bekannter Zustand wird gespeichert
+    - danach nur Statusänderungen
 
-    - erster DOWN/UNKNOWN-Check:
-      WARNING
-
-    - Wechsel nach DOWN/UNKNOWN:
-      WARNING
-
-    - Wiederherstellung nach UP:
-      INFO
-
-    - unveränderter Zustand:
-      kein Logeintrag
+    Betriebslog:
+    - initial UP wird nicht protokolliert
+    - DOWN / UNKNOWN werden protokolliert
+    - Wiederherstellung nach UP wird protokolliert
     """
 
-    key = get_check_key(
-        check
+    name = result.get(
+        "name",
+        check["name"]
     )
 
     new_status = result.get(
@@ -322,17 +383,35 @@ def log_status_change(
 
     previous_status = (
         previous_check_states.get(
-            key
+            name
         )
     )
 
-    previous_check_states[key] = (
-        new_status
+    status_changed = (
+        previous_status is None
+        or previous_status != new_status
     )
 
-    name = result.get(
-        "name",
-        "Unknown"
+    if status_changed:
+        if history_store is not None:
+            try:
+                history_store.record(
+                    check_name=name,
+                    status=new_status
+                )
+
+            except Exception:
+                logging.exception(
+                    "Unable to write history for %s",
+                    name
+                )
+
+        previous_check_states[name] = (
+            new_status
+        )
+
+    details = get_result_details(
+        result
     )
 
     check_type = result.get(
@@ -340,12 +419,8 @@ def log_status_change(
         "unknown"
     )
 
-    details = get_result_details(
-        result
-    )
-
     #
-    # Erster Check
+    # Erster jemals bekannter Zustand
     #
     if previous_status is None:
         if new_status == "down":
@@ -364,8 +439,6 @@ def log_status_change(
                 details
             )
 
-        # Ein initialer UP-Status wird absichtlich
-        # nicht protokolliert.
         return
 
     #
@@ -429,8 +502,6 @@ def perform_checks(config):
 
     results = []
 
-    # Checkzyklen werden nur auf DEBUG
-    # protokolliert.
     logging.debug(
         "Starting check cycle"
     )
@@ -448,23 +519,11 @@ def perform_checks(config):
         except Exception as exc:
             logging.exception(
                 "Internal error while checking %s",
-                check.get(
-                    "name",
-                    check.get(
-                        "target",
-                        "Unknown"
-                    )
-                )
+                check["name"]
             )
 
             result = {
-                "name": check.get(
-                    "name",
-                    check.get(
-                        "target",
-                        "Unknown"
-                    )
-                ),
+                "name": check["name"],
                 "description": check.get(
                     "description",
                     ""
@@ -493,7 +552,7 @@ def perform_checks(config):
             result
         )
 
-        log_status_change(
+        process_status_change(
             check,
             result
         )
@@ -506,9 +565,16 @@ def perform_checks(config):
     }
 
     with status_lock:
-        current_status = (
-            new_status
-        )
+        current_status = new_status
+
+    if history_store is not None:
+        try:
+            history_store.cleanup()
+
+        except Exception:
+            logging.exception(
+                "Unable to clean history"
+            )
 
 
 def check_loop(
@@ -525,8 +591,7 @@ def check_loop(
     )
 
     logging.info(
-        "Checker started: "
-        "interval=%s seconds",
+        "Checker started: interval=%s seconds",
         interval
     )
 
@@ -566,6 +631,62 @@ def api_status():
         )
 
 
+@app.route("/api/history")
+def api_history():
+    if history_store is None:
+        return jsonify({
+            "enabled": False,
+            "checks": {}
+        })
+
+    hours_raw = request.args.get(
+        "hours",
+        str(history_default_hours)
+    )
+
+    try:
+        hours = int(
+            hours_raw
+        )
+    except (TypeError, ValueError):
+        return jsonify({
+            "error": "Invalid hours parameter"
+        }), 400
+
+    if hours < 1:
+        return jsonify({
+            "error": "hours must be >= 1"
+        }), 400
+
+    max_hours = (
+        history_retention_days * 24
+    )
+
+    if hours > max_hours:
+        hours = max_hours
+
+    try:
+        history = history_store.get_history(
+            check_names=configured_check_names,
+            hours=hours
+        )
+
+    except Exception:
+        logging.exception(
+            "Unable to read history"
+        )
+
+        return jsonify({
+            "error": "Unable to read history"
+        }), 500
+
+    history["enabled"] = True
+
+    return jsonify(
+        history
+    )
+
+
 @app.route("/api/health")
 def health():
     return jsonify({
@@ -574,6 +695,9 @@ def health():
 
 
 def run(stop_event=None):
+    global configured_check_names
+    global previous_check_states
+
     if not os.path.exists(
         CONFIG_FILE
     ):
@@ -583,6 +707,16 @@ def run(stop_event=None):
         )
 
     config = load_config()
+
+    try:
+        validate_config(
+            config
+        )
+
+    except ValueError as exc:
+        raise SystemExit(
+            f"Invalid configuration: {exc}"
+        )
 
     configure_logging(
         config
@@ -597,10 +731,41 @@ def run(stop_event=None):
         []
     )
 
+    configured_check_names = [
+        check["name"]
+        for check in checks
+    ]
+
     logging.info(
         "Loaded %s checks",
         len(checks)
     )
+
+    initialize_history(
+        config
+    )
+
+    previous_check_states = {}
+
+    if history_store is not None:
+        try:
+            previous_check_states.update(
+                history_store.get_last_statuses(
+                    configured_check_names
+                )
+            )
+
+            logging.info(
+                "Loaded %s previous check states "
+                "from history",
+                len(previous_check_states)
+            )
+
+        except Exception:
+            logging.exception(
+                "Unable to restore previous "
+                "states from history"
+            )
 
     initialize_status(
         config
@@ -654,12 +819,10 @@ def run(stop_event=None):
         threads=4
     )
 
-    server_thread = (
-        threading.Thread(
-            target=server.run,
-            name="waitress",
-            daemon=True
-        )
+    server_thread = threading.Thread(
+        target=server.run,
+        name="waitress",
+        daemon=True
     )
 
     server_thread.start()
@@ -670,8 +833,7 @@ def run(stop_event=None):
         ):
             if not server_thread.is_alive():
                 logging.error(
-                    "Waitress server "
-                    "stopped unexpectedly"
+                    "Waitress server stopped unexpectedly"
                 )
 
                 break
@@ -706,10 +868,7 @@ def run(stop_event=None):
                 None
             )
 
-            if (
-                task_dispatcher
-                is not None
-            ):
+            if task_dispatcher is not None:
                 task_dispatcher.shutdown()
 
         except Exception:
