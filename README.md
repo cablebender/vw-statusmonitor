@@ -13,6 +13,7 @@ Lightweight status monitoring dashboard for Windows Server.
 - TCP port checks
 - JSON API
 - Web dashboard
+- History 24h
 - Logs
 - Configurable check interval
 - Runs as a Windows service
@@ -32,7 +33,7 @@ Lightweight status monitoring dashboard for Windows Server.
 
 2. Clone Repository
    * einfach downloaden und
-   * in ein Verzeichnis der Wahl (bsp.: c:\vw-statusmonitor) entpacken
+   * in ein Verzeichnis der Wahl (bsp.: d:\vw-statusmonitor) entpacken
 
 3. Virtuelle Python-Umgebung erstellen
    * Kommandozeile im Repository-Verzeichnis mit erhöhten Rechten öffnen
