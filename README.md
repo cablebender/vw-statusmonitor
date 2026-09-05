@@ -162,6 +162,10 @@ Lightweight status monitoring dashboard for Windows Server.
 * Dienst starten
 
 ## Updating
+* Dienst stoppen
+* neue Dateien aus dem Repo ins Verzeichnis laden, vorhandene Dateien überschreiben
+* Config ggf. anpassen
+* Dienst starten
 
 ## Troubleshooting
 
