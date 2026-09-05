@@ -94,19 +94,53 @@ Lightweight status monitoring dashboard for Windows Server.
         "check_interval": 30,
         "default_timeout": 3,
         "listen_address": "0.0.0.0",
-        "listen_port": 8080
+        "listen_port": 8080,
+
+        "logging": {
+            "level": "INFO",
+            "max_size_mb": 5,
+            "backup_count": 5
+        },
+
+        "history": {
+            "enabled": true,
+            "retention_days": 30,
+            "default_display_hours": 24
+        }
     },
+
     "checks": [
         {
-            "name": "Localhost",
+            "name": "Gateway",
+            "description": "Default Gateway",
             "type": "ping",
-            "target": "127.0.0.1"
+            "target": "10.0.0.1"
         },
+
         {
-            "name": "Google",
+            "name": "Webserver",
+            "description": "Interner Webserver",
+            "type": "http",
+            "target": "https://10.0.0.20/",
+            "expected_status": 200,
+            "verify_tls": false
+        },
+
+        {
+            "name": "Webserver Zugriffsschutz",
+            "description": "HTTP 403 wird erwartet",
+            "type": "http",
+            "target": "https://10.0.0.30/",
+            "expected_status": 403,
+            "verify_tls": false
+        },
+
+        {
+            "name": "LDAP",
+            "description": "Domain Controller LDAP",
             "type": "tcp",
-            "target": "8.8.8.8",
-            "port": 53
+            "target": "10.0.0.10",
+            "port": 389
         }
     ]
 }
