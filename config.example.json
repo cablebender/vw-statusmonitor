@@ -9,6 +9,12 @@
             "level": "INFO",
             "max_size_mb": 5,
             "backup_count": 5
+        },
+
+        "history": {
+            "enabled": true,
+            "retention_days": 30,
+            "default_display_hours": 24
         }
     },
 
