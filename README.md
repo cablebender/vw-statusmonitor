@@ -38,7 +38,7 @@ Lightweight status monitoring dashboard for Windows Server.
    * in ein Verzeichnis der Wahl (bsp.: d:\vw-statusmonitor) entpacken
 
 3. Virtuelle Python-Umgebung erstellen
-   * Kommandozeile im Repository-Verzeichnis mit erhöhten Rechten öffnen
+   * Kommandozeile im Verzeichnis (bsp.: d:\vw-statusmonitor) mit erhöhten Rechten öffnen
    * venv erstellen
      ```
      python -m venv .venv
