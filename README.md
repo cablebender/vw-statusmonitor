@@ -29,7 +29,9 @@ Lightweight status monitoring dashboard for Windows Server.
 
 1. Installiere Python
    * https://www.python.org/downloads/windows/
-   * globale Installation
+     * globale Installation (for all users / "C:\Program Files\Python3" for example)
+     * pip
+     * add python for environment
 
 2. Clone Repository
    * einfach downloaden und
