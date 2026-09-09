@@ -22,6 +22,7 @@ class HistoryStore:
     ):
         self.data_dir = data_dir
         self.filename = filename
+
         self.retention_days = max(
             1,
             int(retention_days)
@@ -35,8 +36,6 @@ class HistoryStore:
         self.lock = threading.RLock()
 
         self.last_cleanup = 0.0
-
-        # Maximal einmal pro Stunde aufräumen.
         self.cleanup_interval = 3600
 
         os.makedirs(
@@ -74,15 +73,15 @@ class HistoryStore:
                     + "+00:00"
                 )
 
-            timestamp = (
-                datetime.fromisoformat(
-                    value
-                )
+            timestamp = datetime.fromisoformat(
+                value
             )
 
             if timestamp.tzinfo is None:
-                timestamp = timestamp.replace(
-                    tzinfo=timezone.utc
+                timestamp = (
+                    timestamp.replace(
+                        tzinfo=timezone.utc
+                    )
                 )
 
             return timestamp.astimezone(
@@ -149,6 +148,7 @@ class HistoryStore:
                 "r",
                 encoding="utf-8"
             ) as file:
+
                 for line_number, line in enumerate(
                     file,
                     start=1
@@ -376,18 +376,6 @@ class HistoryStore:
         self,
         force=False
     ):
-        """
-        Entfernt alte History-Einträge.
-
-        Wichtig:
-        Pro Check bleibt der letzte Status VOR
-        der Retention-Grenze erhalten.
-
-        Dadurch kann der Zustand am Beginn
-        des Zeitfensters weiterhin rekonstruiert
-        werden.
-        """
-
         now_monotonic = (
             time.monotonic()
         )
@@ -421,7 +409,6 @@ class HistoryStore:
                 return
 
             last_before_cutoff = {}
-
             retained_events = []
 
             for event in events:
@@ -452,6 +439,7 @@ class HistoryStore:
                 "w",
                 encoding="utf-8"
             ) as file:
+
                 for event in retained_events:
                     record = {
                         "time": self._format_time(
