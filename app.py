@@ -35,15 +35,10 @@ current_status = {
 }
 
 
-# Der Check-Name ist gleichzeitig die eindeutige ID.
 configured_check_names = []
-
-# Letzter bekannter Zustand je Check.
 previous_check_states = {}
 
-# Wird nur gesetzt, wenn History aktiviert ist.
 history_store = None
-
 history_default_hours = 24
 history_retention_days = 30
 
@@ -58,13 +53,6 @@ def load_config():
 
 
 def validate_config(config):
-    """
-    Prüft grundlegende Konfigurationsfehler.
-
-    Da der Check-Name gleichzeitig die ID ist,
-    müssen alle Namen eindeutig sein.
-    """
-
     checks = config.get("checks", [])
 
     seen_names = {}
@@ -92,6 +80,50 @@ def validate_config(config):
             )
 
         seen_names[normalized_name] = name
+
+    valid_names = set(
+        seen_names.keys()
+    )
+
+    for check in checks:
+        name = check["name"]
+
+        depends_on = check.get(
+            "depends_on",
+            []
+        )
+
+        if not isinstance(
+            depends_on,
+            list
+        ):
+            raise ValueError(
+                f"'depends_on' for '{name}' "
+                "must be a list"
+            )
+
+        for dependency in depends_on:
+            dependency_normalized = (
+                str(dependency).casefold()
+            )
+
+            if (
+                dependency_normalized
+                not in valid_names
+            ):
+                raise ValueError(
+                    f"Check '{name}' depends on "
+                    f"unknown check '{dependency}'"
+                )
+
+            if (
+                dependency_normalized
+                == name.casefold()
+            ):
+                raise ValueError(
+                    f"Check '{name}' cannot "
+                    "depend on itself"
+                )
 
 
 def configure_logging(config):
@@ -298,7 +330,11 @@ def initialize_status(config):
                 "target",
                 ""
             ),
-            "status": "unknown"
+            "status": "unknown",
+            "depends_on": check.get(
+                "depends_on",
+                []
+            )
         }
 
         if "port" in check:
@@ -358,19 +394,6 @@ def process_status_change(
     check,
     result
 ):
-    """
-    Behandelt Logging und History.
-
-    History:
-    - erster bekannter Zustand wird gespeichert
-    - danach nur Statusänderungen
-
-    Betriebslog:
-    - initial UP wird nicht protokolliert
-    - DOWN / UNKNOWN werden protokolliert
-    - Wiederherstellung nach UP wird protokolliert
-    """
-
     name = result.get(
         "name",
         check["name"]
@@ -419,9 +442,6 @@ def process_status_change(
         "unknown"
     )
 
-    #
-    # Erster jemals bekannter Zustand
-    #
     if previous_status is None:
         if new_status == "down":
             logging.warning(
@@ -441,15 +461,9 @@ def process_status_change(
 
         return
 
-    #
-    # Keine Änderung
-    #
     if previous_status == new_status:
         return
 
-    #
-    # Statusänderung
-    #
     if new_status == "up":
         logging.info(
             "%s [%s] %s -> UP%s",
@@ -547,6 +561,13 @@ def perform_checks(config):
                 result["port"] = (
                     check["port"]
                 )
+
+        result["depends_on"] = (
+            check.get(
+                "depends_on",
+                []
+            )
+        )
 
         results.append(
             result
