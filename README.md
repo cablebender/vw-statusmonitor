@@ -2,7 +2,7 @@
 
 
 Lightweight status monitoring dashboard for Windows Server.
-<img width="974" height="499" alt="image" src="https://github.com/user-attachments/assets/fd9bf14d-1008-4288-8502-4e8225b019b8" />
+<img width="691" height="1006" alt="image" src="https://github.com/user-attachments/assets/c7dedae8-a69c-4448-a6c8-251c56d30c59" />
 
 
 
