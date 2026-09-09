@@ -13,7 +13,7 @@ Lightweight status monitoring dashboard for Windows Server.
 - TCP port checks
 - JSON API
 - Web dashboard
-- History 24h
+- History 24h, Topology
 - Logs
 - Configurable check interval
 - Runs as a Windows service
