@@ -17,7 +17,6 @@ def check_ping(target, timeout=3):
             "-w", str(timeout * 1000),
             target
         ]
-
     else:
         command = [
             "ping",
@@ -155,7 +154,7 @@ def check_http(
 
             http_status = response.status
 
-            return {
+            result = {
                 "status": (
                     "up"
                     if http_status == expected_status
@@ -164,6 +163,14 @@ def check_http(
                 "http_status": http_status,
                 "response_ms": elapsed
             }
+
+            if http_status != expected_status:
+                result["error"] = (
+                    f"Expected HTTP {expected_status}, "
+                    f"received HTTP {http_status}"
+                )
+
+            return result
 
     except urllib.error.HTTPError as exc:
         elapsed = round(
@@ -176,20 +183,22 @@ def check_http(
 
         http_status = exc.code
 
-        return {
+        result = {
             "status": (
                 "up"
                 if http_status == expected_status
                 else "down"
             ),
             "http_status": http_status,
-            "response_ms": elapsed,
-            "error": (
-                None
-                if http_status == expected_status
-                else str(exc)
-            )
+            "response_ms": elapsed
         }
+
+        if http_status != expected_status:
+            result["error"] = str(
+                exc
+            )
+
+        return result
 
     except (
         urllib.error.URLError,
@@ -215,10 +224,19 @@ def check_http(
             "status": "unknown",
             "error": str(exc)
         }
-        
-def run_check(check, default_timeout=3):
-    check_type = check.get("type")
-    target = check.get("target")
+
+
+def run_check(
+    check,
+    default_timeout=3
+):
+    check_type = check.get(
+        "type"
+    )
+
+    target = check.get(
+        "target"
+    )
 
     timeout = check.get(
         "timeout",
@@ -288,9 +306,11 @@ def run_check(check, default_timeout=3):
         target or "Unknown"
     )
 
-    result["description"] = check.get(
-        "description",
-        ""
+    result["description"] = (
+        check.get(
+            "description",
+            ""
+        )
     )
 
     result["type"] = (
@@ -303,7 +323,16 @@ def run_check(check, default_timeout=3):
         or ""
     )
 
+    result["depends_on"] = (
+        check.get(
+            "depends_on",
+            []
+        )
+    )
+
     if "port" in check:
-        result["port"] = check["port"]
+        result["port"] = (
+            check["port"]
+        )
 
     return result
