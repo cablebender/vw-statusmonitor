@@ -113,10 +113,20 @@ Lightweight status monitoring dashboard for Windows Server.
 
     "checks": [
         {
+            "name": "Internet",
+            "description": "Internet-Verbindung",
+            "type": "ping",
+            "target": "8.8.8.8"
+        },
+
+        {
             "name": "Gateway",
             "description": "Default Gateway",
             "type": "ping",
-            "target": "10.0.0.1"
+            "target": "10.0.0.1",
+            "depends_on": [
+                "Internet"
+            ]
         },
 
         {
@@ -125,16 +135,10 @@ Lightweight status monitoring dashboard for Windows Server.
             "type": "http",
             "target": "https://10.0.0.20/",
             "expected_status": 200,
-            "verify_tls": false
-        },
-
-        {
-            "name": "Webserver Zugriffsschutz",
-            "description": "HTTP 403 wird erwartet",
-            "type": "http",
-            "target": "https://10.0.0.30/",
-            "expected_status": 403,
-            "verify_tls": false
+            "verify_tls": false,
+            "depends_on": [
+                "Gateway"
+            ]
         },
 
         {
@@ -142,7 +146,23 @@ Lightweight status monitoring dashboard for Windows Server.
             "description": "Domain Controller LDAP",
             "type": "tcp",
             "target": "10.0.0.10",
-            "port": 389
+            "port": 389,
+            "depends_on": [
+                "Gateway"
+            ]
+        },
+
+        {
+            "name": "Anwendung",
+            "description": "Fachanwendung",
+            "type": "http",
+            "target": "https://10.0.0.30/",
+            "expected_status": 403,
+            "verify_tls": false,
+            "depends_on": [
+                "Webserver",
+                "LDAP"
+            ]
         }
     ]
 }
