@@ -12,7 +12,9 @@ BASE_DIR = os.path.dirname(
     os.path.abspath(__file__)
 )
 
-os.chdir(BASE_DIR)
+os.chdir(
+    BASE_DIR
+)
 
 if BASE_DIR not in sys.path:
     sys.path.insert(
@@ -51,7 +53,9 @@ class VWStatusMonitorService(
             )
         )
 
-        self.stop_event = threading.Event()
+        self.stop_event = (
+            threading.Event()
+        )
 
 
     def SvcStop(self):
