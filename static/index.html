@@ -17,30 +17,149 @@
     >
 </head>
 
-<body>
 
-<header>
-    <div class="header-content">
+<body id="top">
 
-        <div>
-            <h1>VW Statusmonitor</h1>
+<header class="main-header">
+
+    <div class="header-inner">
+
+        <div class="header-title">
+
+            <h1>
+                VW Statusmonitor
+            </h1>
 
             <div id="last-update">
                 Status wird geladen...
             </div>
+
         </div>
 
-        <div id="history-info">
-            Historie: letzte 24 Stunden
-        </div>
+
+        <nav class="main-navigation">
+
+            <a href="#status">
+                Status
+            </a>
+
+            <a href="#topology">
+                Topologie
+            </a>
+
+        </nav>
 
     </div>
+
 </header>
 
 
 <main>
-    <div id="systems"></div>
+
+    <section
+        id="status"
+        class="page-section"
+    >
+
+        <div class="section-header">
+
+            <div>
+                <h2>
+                    Status
+                </h2>
+
+                <p>
+                    Aktueller Zustand und Verlauf
+                    der letzten 24 Stunden
+                </p>
+            </div>
+
+            <div id="history-info">
+                Historie: letzte 24 Stunden
+            </div>
+
+        </div>
+
+
+        <div id="systems">
+
+            <div class="loading-message">
+                Status wird geladen...
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <section
+        id="topology"
+        class="page-section topology-section"
+    >
+
+        <div class="section-header">
+
+            <div>
+                <h2>
+                    Topologie
+                </h2>
+
+                <p>
+                    Abhängigkeiten der überwachten
+                    Systeme
+                </p>
+            </div>
+
+        </div>
+
+
+        <div class="topology-legend">
+
+            <span>
+                <i class="legend-dot up"></i>
+                UP
+            </span>
+
+            <span>
+                <i class="legend-dot down"></i>
+                DOWN
+            </span>
+
+            <span>
+                <i class="legend-dot unknown"></i>
+                UNKNOWN
+            </span>
+
+        </div>
+
+
+        <div
+            id="topology-container"
+            class="topology-container"
+        >
+
+            <div class="loading-message">
+                Topologie wird geladen...
+            </div>
+
+        </div>
+
+    </section>
+
 </main>
+
+
+<footer>
+
+    <span>
+        VW Statusmonitor
+    </span>
+
+    <span id="footer-status">
+        –
+    </span>
+
+</footer>
 
 
 <script src="/app.js"></script>
