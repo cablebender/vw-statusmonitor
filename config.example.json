@@ -33,7 +33,14 @@
             "target": "10.0.0.1",
             "depends_on": [
                 "Internet"
-            ]
+            ],
+            "action": {
+                "enabled": true,
+                "down_for": 900,
+                "type": "powershell",
+                "script": "scripts/cisco-vpn-reset.ps1",
+                "timeout": 60
+            }
         },
 
         {
