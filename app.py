@@ -8,16 +8,34 @@ from logging.handlers import RotatingFileHandler
 from flask import Flask, jsonify, request
 from waitress import create_server
 
+from actions import ActionManager
 from checker import run_check
 from history import HistoryStore
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
 
-CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
-STATIC_DIR = os.path.join(BASE_DIR, "static")
-LOG_DIR = os.path.join(BASE_DIR, "logs")
-DATA_DIR = os.path.join(BASE_DIR, "data")
+CONFIG_FILE = os.path.join(
+    BASE_DIR,
+    "config.json"
+)
+
+STATIC_DIR = os.path.join(
+    BASE_DIR,
+    "static"
+)
+
+LOG_DIR = os.path.join(
+    BASE_DIR,
+    "logs"
+)
+
+DATA_DIR = os.path.join(
+    BASE_DIR,
+    "data"
+)
 
 
 app = Flask(
@@ -29,6 +47,7 @@ app = Flask(
 
 status_lock = threading.Lock()
 
+
 current_status = {
     "generated": None,
     "checks": []
@@ -36,11 +55,21 @@ current_status = {
 
 
 configured_check_names = []
+
 previous_check_states = {}
 
 history_store = None
+
 history_default_hours = 24
 history_retention_days = 30
+
+
+#
+# Verwaltung der automatischen Aktionen.
+#
+action_manager = ActionManager(
+    BASE_DIR
+)
 
 
 def load_config():
@@ -53,7 +82,10 @@ def load_config():
 
 
 def validate_config(config):
-    checks = config.get("checks", [])
+    checks = config.get(
+        "checks",
+        []
+    )
 
     seen_names = {}
 
@@ -62,7 +94,10 @@ def validate_config(config):
         start=1
     ):
         name = str(
-            check.get("name", "")
+            check.get(
+                "name",
+                ""
+            )
         ).strip()
 
         if not name:
@@ -70,7 +105,9 @@ def validate_config(config):
                 f"Check #{index} has no name"
             )
 
-        normalized_name = name.casefold()
+        normalized_name = (
+            name.casefold()
+        )
 
         if normalized_name in seen_names:
             raise ValueError(
@@ -79,11 +116,15 @@ def validate_config(config):
                 f"'{seen_names[normalized_name]}'"
             )
 
-        seen_names[normalized_name] = name
+        seen_names[
+            normalized_name
+        ] = name
+
 
     valid_names = set(
         seen_names.keys()
     )
+
 
     for check in checks:
         name = check["name"]
@@ -104,7 +145,9 @@ def validate_config(config):
 
         for dependency in depends_on:
             dependency_normalized = (
-                str(dependency).casefold()
+                str(
+                    dependency
+                ).casefold()
             )
 
             if (
@@ -126,6 +169,106 @@ def validate_config(config):
                 )
 
 
+        #
+        # Action-Konfiguration prüfen.
+        #
+        action = check.get(
+            "action"
+        )
+
+        if action is None:
+            continue
+
+        if not isinstance(
+            action,
+            dict
+        ):
+            raise ValueError(
+                f"'action' for '{name}' "
+                "must be an object"
+            )
+
+
+        if not action.get(
+            "enabled",
+            True
+        ):
+            continue
+
+
+        action_type = action.get(
+            "type"
+        )
+
+        if action_type != "powershell":
+            raise ValueError(
+                f"Unsupported action type "
+                f"for '{name}': "
+                f"{action_type}"
+            )
+
+
+        script = action.get(
+            "script"
+        )
+
+        if not script:
+            raise ValueError(
+                f"Action for '{name}' "
+                "has no script"
+            )
+
+
+        try:
+            down_for = int(
+                action.get(
+                    "down_for",
+                    900
+                )
+            )
+
+        except (
+            TypeError,
+            ValueError
+        ):
+            raise ValueError(
+                f"Invalid action.down_for "
+                f"for '{name}'"
+            )
+
+
+        if down_for < 1:
+            raise ValueError(
+                f"action.down_for for "
+                f"'{name}' must be >= 1"
+            )
+
+
+        try:
+            timeout = int(
+                action.get(
+                    "timeout",
+                    60
+                )
+            )
+
+        except (
+            TypeError,
+            ValueError
+        ):
+            raise ValueError(
+                f"Invalid action.timeout "
+                f"for '{name}'"
+            )
+
+
+        if timeout < 1:
+            raise ValueError(
+                f"action.timeout for "
+                f"'{name}' must be >= 1"
+            )
+
+
 def configure_logging(config):
     os.makedirs(
         LOG_DIR,
@@ -138,6 +281,7 @@ def configure_logging(config):
         .get("logging", {})
     )
 
+
     log_level_name = str(
         logging_config.get(
             "level",
@@ -145,11 +289,13 @@ def configure_logging(config):
         )
     ).upper()
 
+
     log_level = getattr(
         logging,
         log_level_name,
         logging.INFO
     )
+
 
     try:
         max_size_mb = int(
@@ -158,8 +304,13 @@ def configure_logging(config):
                 5
             )
         )
-    except (TypeError, ValueError):
+
+    except (
+        TypeError,
+        ValueError
+    ):
         max_size_mb = 5
+
 
     try:
         backup_count = int(
@@ -168,8 +319,13 @@ def configure_logging(config):
                 5
             )
         )
-    except (TypeError, ValueError):
+
+    except (
+        TypeError,
+        ValueError
+    ):
         backup_count = 5
+
 
     if max_size_mb < 1:
         max_size_mb = 1
@@ -177,25 +333,38 @@ def configure_logging(config):
     if backup_count < 0:
         backup_count = 0
 
+
     logfile = os.path.join(
         LOG_DIR,
         "status-monitor.log"
     )
 
+
     formatter = logging.Formatter(
-        "%(asctime)s %(levelname)s %(message)s"
+        "%(asctime)s "
+        "%(levelname)s "
+        "%(message)s"
     )
 
-    file_handler = RotatingFileHandler(
-        logfile,
-        maxBytes=max_size_mb * 1024 * 1024,
-        backupCount=backup_count,
-        encoding="utf-8"
+
+    file_handler = (
+        RotatingFileHandler(
+            logfile,
+            maxBytes=(
+                max_size_mb
+                * 1024
+                * 1024
+            ),
+            backupCount=backup_count,
+            encoding="utf-8"
+        )
     )
+
 
     file_handler.setFormatter(
         formatter
     )
+
 
     console_handler = (
         logging.StreamHandler()
@@ -205,21 +374,27 @@ def configure_logging(config):
         formatter
     )
 
+
     root_logger = logging.getLogger()
 
     root_logger.setLevel(
         log_level
     )
 
-    for handler in root_logger.handlers[:]:
+
+    for handler in (
+        root_logger.handlers[:]
+    ):
         root_logger.removeHandler(
             handler
         )
 
         try:
             handler.close()
+
         except Exception:
             pass
+
 
     root_logger.addHandler(
         file_handler
@@ -228,6 +403,7 @@ def configure_logging(config):
     root_logger.addHandler(
         console_handler
     )
+
 
     logging.info(
         "Logging initialized: "
@@ -243,16 +419,19 @@ def initialize_history(config):
     global history_default_hours
     global history_retention_days
 
+
     history_config = (
         config
         .get("settings", {})
         .get("history", {})
     )
 
+
     enabled = history_config.get(
         "enabled",
         True
     )
+
 
     try:
         history_retention_days = int(
@@ -261,8 +440,13 @@ def initialize_history(config):
                 30
             )
         )
-    except (TypeError, ValueError):
+
+    except (
+        TypeError,
+        ValueError
+    ):
         history_retention_days = 30
+
 
     try:
         history_default_hours = int(
@@ -271,14 +455,20 @@ def initialize_history(config):
                 24
             )
         )
-    except (TypeError, ValueError):
+
+    except (
+        TypeError,
+        ValueError
+    ):
         history_default_hours = 24
+
 
     if history_retention_days < 1:
         history_retention_days = 1
 
     if history_default_hours < 1:
         history_default_hours = 24
+
 
     if not enabled:
         history_store = None
@@ -289,19 +479,23 @@ def initialize_history(config):
 
         return
 
+
     history_store = HistoryStore(
         data_dir=DATA_DIR,
         filename="history.jsonl",
         retention_days=history_retention_days
     )
 
+
     history_store.cleanup(
         force=True
     )
 
+
     logging.info(
         "History initialized: "
-        "retention=%s days default_display=%s hours",
+        "retention=%s days "
+        "default_display=%s hours",
         history_retention_days,
         history_default_hours
     )
@@ -311,6 +505,7 @@ def initialize_status(config):
     global current_status
 
     checks = []
+
 
     for check in config.get(
         "checks",
@@ -337,12 +532,17 @@ def initialize_status(config):
             )
         }
 
+
         if "port" in check:
-            item["port"] = check["port"]
+            item["port"] = (
+                check["port"]
+            )
+
 
         checks.append(
             item
         )
+
 
     with status_lock:
         current_status = {
@@ -354,12 +554,15 @@ def initialize_status(config):
 def get_result_details(result):
     details = []
 
+
     if result.get(
         "http_status"
     ) is not None:
         details.append(
-            f"HTTP {result['http_status']}"
+            f"HTTP "
+            f"{result['http_status']}"
         )
+
 
     if result.get(
         "response_ms"
@@ -368,6 +571,7 @@ def get_result_details(result):
             f"{result['response_ms']} ms"
         )
 
+
     if result.get(
         "port"
     ) is not None:
@@ -375,18 +579,26 @@ def get_result_details(result):
             f"port {result['port']}"
         )
 
+
     if result.get(
         "error"
     ):
         details.append(
-            str(result["error"])
+            str(
+                result["error"]
+            )
         )
+
 
     if not details:
         return ""
 
-    return " - " + " | ".join(
-        details
+
+    return (
+        " - "
+        + " | ".join(
+            details
+        )
     )
 
 
@@ -399,10 +611,12 @@ def process_status_change(
         check["name"]
     )
 
+
     new_status = result.get(
         "status",
         "unknown"
     )
+
 
     previous_status = (
         previous_check_states.get(
@@ -410,10 +624,13 @@ def process_status_change(
         )
     )
 
+
     status_changed = (
         previous_status is None
-        or previous_status != new_status
+        or previous_status
+        != new_status
     )
+
 
     if status_changed:
         if history_store is not None:
@@ -425,22 +642,27 @@ def process_status_change(
 
             except Exception:
                 logging.exception(
-                    "Unable to write history for %s",
+                    "Unable to write "
+                    "history for %s",
                     name
                 )
 
-        previous_check_states[name] = (
-            new_status
-        )
+
+        previous_check_states[
+            name
+        ] = new_status
+
 
     details = get_result_details(
         result
     )
 
+
     check_type = result.get(
         "type",
         "unknown"
     )
+
 
     if previous_status is None:
         if new_status == "down":
@@ -461,8 +683,10 @@ def process_status_change(
 
         return
 
+
     if previous_status == new_status:
         return
+
 
     if new_status == "up":
         logging.info(
@@ -497,13 +721,16 @@ def process_status_change(
             name,
             check_type,
             previous_status.upper(),
-            str(new_status).upper(),
+            str(
+                new_status
+            ).upper(),
             details
         )
 
 
 def perform_checks(config):
     global current_status
+
 
     default_timeout = (
         config
@@ -514,11 +741,14 @@ def perform_checks(config):
         )
     )
 
+
     results = []
+
 
     logging.debug(
         "Starting check cycle"
     )
+
 
     for check in config.get(
         "checks",
@@ -532,9 +762,11 @@ def perform_checks(config):
 
         except Exception as exc:
             logging.exception(
-                "Internal error while checking %s",
+                "Internal error while "
+                "checking %s",
                 check["name"]
             )
+
 
             result = {
                 "name": check["name"],
@@ -557,10 +789,12 @@ def perform_checks(config):
                 )
             }
 
+
             if "port" in check:
                 result["port"] = (
                     check["port"]
                 )
+
 
         result["depends_on"] = (
             check.get(
@@ -569,14 +803,37 @@ def perform_checks(config):
             )
         )
 
+
         results.append(
             result
         )
 
+
+        #
+        # History und Status-Logging.
+        #
         process_status_change(
             check,
             result
         )
+
+
+        #
+        # Automatische Aktion auswerten.
+        #
+        try:
+            action_manager.process_result(
+                check,
+                result
+            )
+
+        except Exception:
+            logging.exception(
+                "Error while processing "
+                "action for %s",
+                check["name"]
+            )
+
 
     new_status = {
         "generated": datetime.now(
@@ -585,8 +842,12 @@ def perform_checks(config):
         "checks": results
     }
 
+
     with status_lock:
-        current_status = new_status
+        current_status = (
+            new_status
+        )
+
 
     if history_store is not None:
         try:
@@ -611,10 +872,13 @@ def check_loop(
         )
     )
 
+
     logging.info(
-        "Checker started: interval=%s seconds",
+        "Checker started: "
+        "interval=%s seconds",
         interval
     )
+
 
     while not stop_event.is_set():
         try:
@@ -627,10 +891,12 @@ def check_loop(
                 "Error during check cycle"
             )
 
+
         if stop_event.wait(
             interval
         ):
             break
+
 
     logging.info(
         "Checker thread stopped"
@@ -660,36 +926,55 @@ def api_history():
             "checks": {}
         })
 
+
     hours_raw = request.args.get(
         "hours",
-        str(history_default_hours)
+        str(
+            history_default_hours
+        )
     )
+
 
     try:
         hours = int(
             hours_raw
         )
-    except (TypeError, ValueError):
+
+    except (
+        TypeError,
+        ValueError
+    ):
         return jsonify({
-            "error": "Invalid hours parameter"
+            "error":
+                "Invalid hours parameter"
         }), 400
+
 
     if hours < 1:
         return jsonify({
-            "error": "hours must be >= 1"
+            "error":
+                "hours must be >= 1"
         }), 400
 
+
     max_hours = (
-        history_retention_days * 24
+        history_retention_days
+        * 24
     )
+
 
     if hours > max_hours:
         hours = max_hours
 
+
     try:
-        history = history_store.get_history(
-            check_names=configured_check_names,
-            hours=hours
+        history = (
+            history_store.get_history(
+                check_names=(
+                    configured_check_names
+                ),
+                hours=hours
+            )
         )
 
     except Exception:
@@ -698,10 +983,13 @@ def api_history():
         )
 
         return jsonify({
-            "error": "Unable to read history"
+            "error":
+                "Unable to read history"
         }), 500
 
+
     history["enabled"] = True
+
 
     return jsonify(
         history
@@ -719,6 +1007,7 @@ def run(stop_event=None):
     global configured_check_names
     global previous_check_states
 
+
     if not os.path.exists(
         CONFIG_FILE
     ):
@@ -727,7 +1016,9 @@ def run(stop_event=None):
             + CONFIG_FILE
         )
 
+
     config = load_config()
+
 
     try:
         validate_config(
@@ -739,34 +1030,42 @@ def run(stop_event=None):
             f"Invalid configuration: {exc}"
         )
 
+
     configure_logging(
         config
     )
 
+
     logging.info(
         "Starting VW-Statusmonitor"
     )
+
 
     checks = config.get(
         "checks",
         []
     )
 
+
     configured_check_names = [
         check["name"]
         for check in checks
     ]
+
 
     logging.info(
         "Loaded %s checks",
         len(checks)
     )
 
+
     initialize_history(
         config
     )
 
+
     previous_check_states = {}
+
 
     if history_store is not None:
         try:
@@ -776,10 +1075,13 @@ def run(stop_event=None):
                 )
             )
 
+
             logging.info(
-                "Loaded %s previous check states "
-                "from history",
-                len(previous_check_states)
+                "Loaded %s previous "
+                "check states from history",
+                len(
+                    previous_check_states
+                )
             )
 
         except Exception:
@@ -788,14 +1090,17 @@ def run(stop_event=None):
                 "states from history"
             )
 
+
     initialize_status(
         config
     )
+
 
     if stop_event is None:
         stop_event = (
             threading.Event()
         )
+
 
     worker = threading.Thread(
         target=check_loop,
@@ -807,7 +1112,9 @@ def run(stop_event=None):
         daemon=True
     )
 
+
     worker.start()
+
 
     listen_address = (
         config
@@ -818,6 +1125,7 @@ def run(stop_event=None):
         )
     )
 
+
     listen_port = (
         config
         .get("settings", {})
@@ -827,11 +1135,13 @@ def run(stop_event=None):
         )
     )
 
+
     logging.info(
         "Listening on %s:%s",
         listen_address,
         listen_port
     )
+
 
     server = create_server(
         app,
@@ -840,13 +1150,18 @@ def run(stop_event=None):
         threads=4
     )
 
-    server_thread = threading.Thread(
-        target=server.run,
-        name="waitress",
-        daemon=True
+
+    server_thread = (
+        threading.Thread(
+            target=server.run,
+            name="waitress",
+            daemon=True
+        )
     )
 
+
     server_thread.start()
+
 
     try:
         while not stop_event.wait(
@@ -854,10 +1169,12 @@ def run(stop_event=None):
         ):
             if not server_thread.is_alive():
                 logging.error(
-                    "Waitress server stopped unexpectedly"
+                    "Waitress server "
+                    "stopped unexpectedly"
                 )
 
                 break
+
 
     except KeyboardInterrupt:
         logging.info(
@@ -866,12 +1183,15 @@ def run(stop_event=None):
 
         stop_event.set()
 
+
     finally:
         logging.info(
             "Stopping VW-Statusmonitor"
         )
 
+
         stop_event.set()
+
 
         try:
             server.close()
@@ -882,6 +1202,7 @@ def run(stop_event=None):
                 "Waitress server"
             )
 
+
         try:
             task_dispatcher = getattr(
                 server,
@@ -889,14 +1210,20 @@ def run(stop_event=None):
                 None
             )
 
-            if task_dispatcher is not None:
+
+            if (
+                task_dispatcher
+                is not None
+            ):
                 task_dispatcher.shutdown()
+
 
         except Exception:
             logging.exception(
                 "Error while stopping "
                 "Waitress task dispatcher"
             )
+
 
         server_thread.join(
             timeout=10
@@ -905,6 +1232,7 @@ def run(stop_event=None):
         worker.join(
             timeout=10
         )
+
 
         logging.info(
             "VW-Statusmonitor stopped"
